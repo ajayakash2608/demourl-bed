@@ -11,7 +11,6 @@ const app = express();
 app.use(express.json());
 app.use(cors());
 
-// Connect to MongoDB
 mongoose.connect(process.env.MONGODB_URI, { useNewUrlParser: true, useUnifiedTopology: true });
 
 mongoose.connection.on('connected', () => {
@@ -22,7 +21,6 @@ mongoose.connection.on('error', (err) => {
   console.error('MongoDB connection error:', err);
 });
 
-// Define schemas and models
 const userSchema = new mongoose.Schema({
   email: { type: String, required: true, unique: true },
   password: { type: String, required: true },
@@ -41,19 +39,6 @@ const urlSchema = new mongoose.Schema({
 
 const Url = mongoose.model('Url', urlSchema);
 
-// Middleware for authentication
-const authenticateToken = (req, res, next) => {
-  const token = req.headers.authorization?.split(' ')[1];
-  if (!token) return res.status(401).send('Access denied');
-
-  jwt.verify(token, process.env.JWT_SECRET, (err, decoded) => {
-    if (err) return res.status(403).send('Invalid token');
-    req.userId = decoded.userId;
-    next();
-  });
-};
-
-// Routes
 app.post('/signup', async (req, res) => {
   const { email, password } = req.body;
 
@@ -89,7 +74,18 @@ app.post('/login', async (req, res) => {
   }
 });
 
-app.post('/shorten', authenticateToken, async (req, res) => {
+const authenticateToken = (req, res, next) => {
+  const token = req.headers.authorization?.split(' ')[1];
+  if (!token) return res.status(401).send('Access denied');
+
+  jwt.verify(token, process.env.JWT_SECRET, (err, decoded) => {
+    if (err) return res.status(403).send('Invalid token');
+    req.userId = decoded.userId;
+    next();
+  });
+};
+
+app.post('/api/shorten', authenticateToken, async (req, res) => {
   const { originalUrl } = req.body;
 
   try {
@@ -109,7 +105,7 @@ app.post('/shorten', authenticateToken, async (req, res) => {
   }
 });
 
-app.get('/dashboard', authenticateToken, async (req, res) => {
+app.get('/api/dashboard', authenticateToken, async (req, res) => {
   try {
     const totalUrls = await Url.countDocuments({ userId: req.userId });
 
@@ -129,7 +125,7 @@ app.get('/dashboard', authenticateToken, async (req, res) => {
   }
 });
 
-app.get('/urls', authenticateToken, async (req, res) => {
+app.get('/api/urls', authenticateToken, async (req, res) => {
   try {
     const urls = await Url.find({ userId: req.userId }).select('originalUrl shortUrl createdAt');
     res.status(200).json(urls);
@@ -138,7 +134,7 @@ app.get('/urls', authenticateToken, async (req, res) => {
   }
 });
 
-app.post('/forgot-password', async (req, res) => {
+app.post('/api/forgot-password', async (req, res) => {
   const { email } = req.body;
 
   try {
@@ -164,37 +160,37 @@ app.post('/forgot-password', async (req, res) => {
       to: email,
       from: process.env.EMAIL_USER,
       subject: 'Password Reset',
-      text: `Click the following link to reset your password: ${process.env.CLIENT_URL}/reset-password/${token}`
+      text: `Click the link to reset your password: ${process.env.FRONTEND_URL}reset-password/${token}`
     };
 
-    await transporter.sendMail(mailOptions);
-
-    res.status(200).send('Password reset email sent');
+    transporter.sendMail(mailOptions, (err) => {
+      if (err) {
+        return res.status(500).send('Error sending email');
+      }
+      res.status(200).send('Password reset link sent to your email');
+    });
   } catch (error) {
-    res.status(500).send('Error sending password reset email');
+    res.status(500).send('Error processing password reset request');
   }
 });
 
-app.post('/reset-password/:token', async (req, res) => {
+app.post('/api/reset-password/:token', async (req, res) => {
   const { token } = req.params;
-  const { newPassword } = req.body;
+  const { password } = req.body;
 
   try {
-    const user = await User.findOne({
-      resetToken: token,
-      resetTokenExpiration: { $gt: Date.now() }
-    });
-
+    const user = await User.findOne({ resetToken: token, resetTokenExpiration: { $gt: Date.now() } });
     if (!user) {
       return res.status(400).send('Invalid or expired token');
     }
 
-    user.password = await bcrypt.hash(newPassword, 10);
+    const hashedPassword = await bcrypt.hash(password, 10);
+    user.password = hashedPassword;
     user.resetToken = undefined;
     user.resetTokenExpiration = undefined;
     await user.save();
 
-    res.status(200).send('Password successfully reset');
+    res.status(200).send('Password has been updated successfully');
   } catch (error) {
     res.status(500).send('Error resetting password');
   }
