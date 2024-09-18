@@ -21,6 +21,7 @@ const userSchema = new mongoose.Schema({
   resetToken: String,
   resetTokenExpiration: Date
 });
+
 const User = mongoose.model('User', userSchema);
 
 const urlSchema = new mongoose.Schema({
@@ -29,18 +30,8 @@ const urlSchema = new mongoose.Schema({
   shortUrl: { type: String, required: true },
   createdAt: { type: Date, default: Date.now }
 });
+
 const Url = mongoose.model('Url', urlSchema);
-
-const authenticateToken = (req, res, next) => {
-  const token = req.headers.authorization?.split(' ')[1];
-  if (!token) return res.status(401).json({ error: 'Access denied' });
-
-  jwt.verify(token, process.env.JWT_SECRET, (err, decoded) => {
-    if (err) return res.status(403).json({ error: 'Invalid token' });
-    req.userId = decoded.userId;
-    next();
-  });
-};
 
 app.post('/signup', async (req, res) => {
   const { email, password } = req.body;
@@ -49,9 +40,9 @@ app.post('/signup', async (req, res) => {
     const hashedPassword = await bcrypt.hash(password, 10);
     const user = new User({ email, password: hashedPassword });
     await user.save();
-    res.status(201).json({ message: 'User created successfully' });
+    res.status(201).send('User created successfully');
   } catch (error) {
-    res.status(500).json({ error: 'Error during signup' });
+    res.status(500).send('Error during signup');
   }
 });
 
@@ -61,20 +52,31 @@ app.post('/login', async (req, res) => {
   try {
     const user = await User.findOne({ email });
     if (!user) {
-      return res.status(401).json({ error: 'Invalid credentials' });
+      return res.status(401).send('Invalid credentials');
     }
 
     const isPasswordValid = await bcrypt.compare(password, user.password);
     if (!isPasswordValid) {
-      return res.status(401).json({ error: 'Invalid credentials' });
+      return res.status(401).send('Invalid credentials');
     }
 
     const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET, { expiresIn: '1h' });
     res.status(200).json({ message: 'Login successful', token });
   } catch (error) {
-    res.status(500).json({ error: 'Error during login' });
+    res.status(500).send('Error during login');
   }
 });
+
+const authenticateToken = (req, res, next) => {
+  const token = req.headers.authorization?.split(' ')[1];
+  if (!token) return res.status(401).send('Access denied');
+
+  jwt.verify(token, process.env.JWT_SECRET, (err, decoded) => {
+    if (err) return res.status(403).send('Invalid token');
+    req.userId = decoded.userId;
+    next();
+  });
+};
 
 app.post('/api/shorten', authenticateToken, async (req, res) => {
   const { originalUrl } = req.body;
@@ -90,7 +92,7 @@ app.post('/api/shorten', authenticateToken, async (req, res) => {
     await newUrl.save();
     res.status(201).json({ shortUrl });
   } catch (error) {
-    res.status(500).json({ error: 'Error shortening URL' });
+    res.status(500).send('Error shortening URL');
   }
 });
 
@@ -110,7 +112,7 @@ app.get('/api/dashboard', authenticateToken, async (req, res) => {
 
     res.status(200).json({ totalUrls, urlsByMonth });
   } catch (error) {
-    res.status(500).json({ error: 'Error fetching dashboard data' });
+    res.status(500).send('Error fetching dashboard data');
   }
 });
 
@@ -119,7 +121,7 @@ app.get('/api/urls', authenticateToken, async (req, res) => {
     const urls = await Url.find({ userId: req.userId }).select('originalUrl shortUrl createdAt');
     res.status(200).json(urls);
   } catch (error) {
-    res.status(500).json({ error: 'Error fetching URLs' });
+    res.status(500).send('Error fetching URLs');
   }
 });
 
@@ -129,7 +131,7 @@ app.post('/api/forgot-password', async (req, res) => {
   try {
     const user = await User.findOne({ email });
     if (!user) {
-      return res.status(404).json({ error: 'User not found' });
+      return res.status(404).send('User not found');
     }
 
     const token = crypto.randomBytes(32).toString('hex');
@@ -154,12 +156,12 @@ app.post('/api/forgot-password', async (req, res) => {
 
     transporter.sendMail(mailOptions, (err) => {
       if (err) {
-        return res.status(500).json({ error: 'Error sending email' });
+        return res.status(500).send('Error sending email');
       }
-      res.status(200).json({ message: 'Password reset link sent to your email' });
+      res.status(200).send('Password reset link sent to your email');
     });
   } catch (error) {
-    res.status(500).json({ error: 'Error processing password reset request' });
+    res.status(500).send('Error processing password reset request');
   }
 });
 
@@ -170,7 +172,7 @@ app.post('/api/reset-password/:token', async (req, res) => {
   try {
     const user = await User.findOne({ resetToken: token, resetTokenExpiration: { $gt: Date.now() } });
     if (!user) {
-      return res.status(400).json({ error: 'Invalid or expired token' });
+      return res.status(400).send('Invalid or expired token');
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
@@ -179,9 +181,9 @@ app.post('/api/reset-password/:token', async (req, res) => {
     user.resetTokenExpiration = undefined;
     await user.save();
 
-    res.status(200).json({ message: 'Password has been updated successfully' });
+    res.status(200).send('Password has been updated successfully');
   } catch (error) {
-    res.status(500).json({ error: 'Error resetting password' });
+    res.status(500).send('Error resetting password');
   }
 });
 
