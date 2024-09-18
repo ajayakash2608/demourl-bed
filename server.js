@@ -11,15 +11,9 @@ const app = express();
 app.use(express.json());
 app.use(cors());
 
-mongoose.connect(process.env.MONGODB_URI, { useNewUrlParser: true, useUnifiedTopology: true });
-
-mongoose.connection.on('connected', () => {
-  console.log('MongoDB connected');
-});
-
-mongoose.connection.on('error', (err) => {
-  console.error('MongoDB connection error:', err);
-});
+mongoose.connect(process.env.MONGODB_URI, { useNewUrlParser: true, useUnifiedTopology: true })
+  .then(() => console.log('MongoDB connected'))
+  .catch((err) => console.error('MongoDB connection error:', err));
 
 const userSchema = new mongoose.Schema({
   email: { type: String, required: true, unique: true },
@@ -67,7 +61,6 @@ app.post('/login', async (req, res) => {
     }
 
     const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET, { expiresIn: '1h' });
-
     res.status(200).json({ message: 'Login successful', token });
   } catch (error) {
     res.status(500).send('Error during login');
@@ -90,7 +83,6 @@ app.post('/api/shorten', authenticateToken, async (req, res) => {
 
   try {
     const shortUrl = crypto.randomBytes(4).toString('hex');
-    
     const newUrl = new Url({
       userId: req.userId,
       originalUrl,
@@ -98,7 +90,6 @@ app.post('/api/shorten', authenticateToken, async (req, res) => {
     });
 
     await newUrl.save();
-
     res.status(201).json({ shortUrl });
   } catch (error) {
     res.status(500).send('Error shortening URL');
@@ -160,7 +151,7 @@ app.post('/api/forgot-password', async (req, res) => {
       to: email,
       from: process.env.EMAIL_USER,
       subject: 'Password Reset',
-      text: `Click the link to reset your password: ${process.env.FRONTEND_URL}reset-password/${token}`
+      text: `Click the link to reset your password: ${process.env.FRONTEND_URL}/reset-password/${token}`
     };
 
     transporter.sendMail(mailOptions, (err) => {
