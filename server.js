@@ -11,31 +11,32 @@ const app = express();
 app.use(express.json());
 app.use(cors());
 
+// Connect to MongoDB
 mongoose.connect(process.env.MONGODB_URI, { useNewUrlParser: true, useUnifiedTopology: true })
   .then(() => console.log('MongoDB connected'))
   .catch((err) => console.error('MongoDB connection error:', err));
 
+// User model
 const userSchema = new mongoose.Schema({
   email: { type: String, required: true, unique: true },
   password: { type: String, required: true },
   resetToken: String,
   resetTokenExpiration: Date
 });
-
 const User = mongoose.model('User', userSchema);
 
+// URL model
 const urlSchema = new mongoose.Schema({
   userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   originalUrl: { type: String, required: true },
   shortUrl: { type: String, required: true },
   createdAt: { type: Date, default: Date.now }
 });
-
 const Url = mongoose.model('Url', urlSchema);
 
+// User signup route
 app.post('/signup', async (req, res) => {
   const { email, password } = req.body;
-
   try {
     const hashedPassword = await bcrypt.hash(password, 10);
     const user = new User({ email, password: hashedPassword });
@@ -46,20 +47,18 @@ app.post('/signup', async (req, res) => {
   }
 });
 
+// User login route
 app.post('/login', async (req, res) => {
   const { email, password } = req.body;
-
   try {
     const user = await User.findOne({ email });
     if (!user) {
       return res.status(401).send('Invalid credentials');
     }
-
     const isPasswordValid = await bcrypt.compare(password, user.password);
     if (!isPasswordValid) {
       return res.status(401).send('Invalid credentials');
     }
-
     const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET, { expiresIn: '1h' });
     res.status(200).json({ message: 'Login successful', token });
   } catch (error) {
@@ -67,6 +66,7 @@ app.post('/login', async (req, res) => {
   }
 });
 
+// Middleware to authenticate token
 const authenticateToken = (req, res, next) => {
   const token = req.headers.authorization?.split(' ')[1];
   if (!token) return res.status(401).send('Access denied');
@@ -78,9 +78,9 @@ const authenticateToken = (req, res, next) => {
   });
 };
 
+// Shorten URL route
 app.post('/api/shorten', authenticateToken, async (req, res) => {
   const { originalUrl } = req.body;
-
   try {
     const shortUrl = crypto.randomBytes(4).toString('hex');
     const newUrl = new Url({
@@ -88,7 +88,6 @@ app.post('/api/shorten', authenticateToken, async (req, res) => {
       originalUrl,
       shortUrl
     });
-
     await newUrl.save();
     res.status(201).json({ shortUrl });
   } catch (error) {
@@ -96,6 +95,21 @@ app.post('/api/shorten', authenticateToken, async (req, res) => {
   }
 });
 
+// Redirect route for short URL
+app.get('/api/urls/:shortUrl', async (req, res) => {
+  const { shortUrl } = req.params;
+  try {
+    const urlData = await Url.findOne({ shortUrl });
+    if (!urlData) {
+      return res.status(404).send('Short URL not found');
+    }
+    res.status(200).json({ longUrl: urlData.originalUrl });
+  } catch (error) {
+    res.status(500).send('Error retrieving URL');
+  }
+});
+
+// Fetch dashboard data for total URLs created
 app.get('/api/dashboard', authenticateToken, async (req, res) => {
   try {
     const totalUrls = await Url.countDocuments({ userId: req.userId });
@@ -116,6 +130,7 @@ app.get('/api/dashboard', authenticateToken, async (req, res) => {
   }
 });
 
+// Fetch all URLs created by the user
 app.get('/api/urls', authenticateToken, async (req, res) => {
   try {
     const urls = await Url.find({ userId: req.userId }).select('originalUrl shortUrl createdAt');
@@ -125,15 +140,14 @@ app.get('/api/urls', authenticateToken, async (req, res) => {
   }
 });
 
+// Forgot password route
 app.post('/api/forgot-password', async (req, res) => {
   const { email } = req.body;
-
   try {
     const user = await User.findOne({ email });
     if (!user) {
       return res.status(404).send('User not found');
     }
-
     const token = crypto.randomBytes(32).toString('hex');
     user.resetToken = token;
     user.resetTokenExpiration = Date.now() + 3600000;
@@ -165,6 +179,7 @@ app.post('/api/forgot-password', async (req, res) => {
   }
 });
 
+// Reset password route
 app.post('/api/reset-password/:token', async (req, res) => {
   const { token } = req.params;
   const { password } = req.body;
@@ -187,6 +202,7 @@ app.post('/api/reset-password/:token', async (req, res) => {
   }
 });
 
+// Start the server
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
